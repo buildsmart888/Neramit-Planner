@@ -1523,6 +1523,35 @@ mod tests {
     }
 
     #[test]
+    fn dated_control_records_work_through_mcp_and_dry_run_rolls_back() {
+        let mut s = server();
+        call(&mut s, "new_project", json!({ "title": "Site A", "start": "2026-11-02" }));
+        let added = call(&mut s, "add_tasks", json!({ "tasks": [{ "name": "Concrete" }] }));
+        let uid = added["added"][0]["uid"].as_u64().unwrap();
+
+        let first = call(&mut s, "record_progress", json!({
+            "uid": uid, "as_of": "2026-11-03", "percent_complete": 25
+        }));
+        assert_eq!(first["recorded"]["percent_complete"], json!(25.0));
+        assert_eq!(call(&mut s, "list_progress", json!({}))["entries"].as_array().unwrap().len(), 1);
+        call(&mut s, "record_progress", json!({
+            "uid": uid, "as_of": "2026-11-04", "percent_complete": 50, "dry_run": true
+        }));
+        assert_eq!(call(&mut s, "list_progress", json!({}))["entries"].as_array().unwrap().len(), 1);
+
+        call(&mut s, "record_actual_cost", json!({
+            "uid": uid, "incurred_on": "2026-11-03", "amount": 1800,
+            "category": "materials", "reference": "RC-01"
+        }));
+        assert_eq!(call(&mut s, "list_actual_costs", json!({}))["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(call(&mut s, "list_boq", json!({}))["items"].as_array().unwrap().len(), 0);
+        let e = call_err(&mut s, "record_progress", json!({
+            "uid": uid, "as_of": "2026-11-05", "percent_complete": 10
+        }));
+        assert!(e.contains("correction"), "{e}");
+    }
+
+    #[test]
     fn build_a_schedule_from_scratch() {
         let mut s = server();
         let v = call(&mut s, "new_project", json!({ "title": "อาคาร A", "start": "2026-11-02" }));
