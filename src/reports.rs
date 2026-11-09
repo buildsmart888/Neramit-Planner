@@ -610,18 +610,20 @@ fn earned_value(app: &App, ui: &mut Ui) {
     let ac: f64 = lv.iter().map(|t| t.actual_cost).sum();
     let pv = pv_at(status);
     let bac: f64 = lv.iter().map(|t| baseline_cost(t)).sum();
-    let spi = if pv > 0.0 { ev / pv } else { 0.0 };
-    let cpi = if ac > 0.0 { ev / ac } else { 0.0 };
-    let eac = if cpi > 0.0 { bac / cpi } else { bac };
+    let spi = if pv > 0.0 { Some(ev / pv) } else { None };
+    let cpi = if ac > 0.0 { Some(ev / ac) } else { None };
+    let eac = cpi.filter(|&x| x > 0.0).map(|x| bac / x);
+    let ratio = |v: Option<f64>| v.map(|x| format!("{x:.2}")).unwrap_or_else(|| "N/A".into());
+    let estimate = |v: Option<f64>| v.map(money).unwrap_or_else(|| "N/A".into());
     kpis(ui, &[(money(pv), "Planned Value - PV (BCWS)"), (money(ev), "Earned Value - EV (BCWP)"), (money(ac), "AC (ACWP)")]);
-    kpis(ui, &[(format!("{spi:.2}"), "SPI"), (format!("{cpi:.2}"), "CPI"), (money(ev - pv), "SV"), (money(ev - ac), "CV"), (money(eac), "EAC")]);
+    kpis(ui, &[(ratio(spi), "SPI"), (ratio(cpi), "CPI"), (money(ev - pv), "SV"), (money(ev - ac), "CV"), (estimate(eac), "EAC")]);
+    note(ui, "Actual cost is currently estimated from resource rates and task completion; it is not a certified actual-cost ledger.");
     heading(ui, "Earned value over time");
     let ms = months(app);
     let labels: Vec<String> = ms.iter().map(|d| month_label(app, *d)).collect();
     let pvs: Vec<f64> = ms.iter().enumerate().map(|(k, m)| pv_at(ms.get(k + 1).map(|n| *n - chrono::Duration::days(1)).unwrap_or(*m + chrono::Duration::days(30)))).collect();
-    let evs: Vec<f64> = ms.iter().take_while(|m| **m <= status).map(|_| ev).collect();
-    let acs: Vec<f64> = ms.iter().take_while(|m| **m <= status).map(|_| ac).collect();
-    line_chart(ui, 280.0, &labels, &[("Planned Value - PV (BCWS)", GREY, pvs), ("Earned Value - EV (BCWP)", BLUE, evs), ("AC (ACWP)", ORANGE, acs)], money_axis);
+    line_chart(ui, 280.0, &labels, &[("Planned Value - PV (BCWS)", GREY, pvs)], money_axis);
+    note(ui, "Historical EV and AC curves are unavailable without dated progress and cost entries. Current EV/AC above are point-in-time estimates, not historical values.");
 }
 
 fn task_cost(app: &App, ui: &mut Ui) {
@@ -748,6 +750,7 @@ fn s_curve(app: &App, ui: &mut Ui) {
     }
     let status = app.status_instant().date();
     let sc = crate::scurve::compute(&app.doc, status, basis, period);
+    note(ui, "Actual curve is an estimate reconstructed from current task % complete; it is not a dated site progress history.");
     let diff = sc.actual_at_status - sc.plan_at_status;
     let verdict = if diff.abs() < 0.005 { "On plan" } else if diff > 0.0 { "Ahead of plan" } else { "Behind plan" };
     ui.add_space(6.0);
