@@ -1308,6 +1308,9 @@ pub struct Project {
     /// Project > Payment Schedule (งวดงาน / งวดเงิน)
     #[serde(default, skip_serializing_if = "PaymentPlan::is_empty")]
     pub payments: PaymentPlan,
+    /// Native project controls: structured BOQ, physical progress observations and posted costs.
+    #[serde(default, skip_serializing_if = "crate::controls::ProjectControls::is_empty")]
+    pub controls: crate::controls::ProjectControls,
 }
 
 /// One installment of the contract (งวดงาน): paid when its task (usually a milestone) is done.
@@ -1656,6 +1659,7 @@ impl Project {
             resource_pool: None,
             drawings: Vec::new(),
             payments: PaymentPlan::default(),
+            controls: crate::controls::ProjectControls::default(),
         }
     }
 

@@ -55,11 +55,14 @@ pub fn load(path: &Path) -> Result<Project, String> {
 
 pub fn save(path: &Path, p: &Project) -> Result<(), String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if ext == "xml" && !p.controls.is_empty() {
+        return Err("Dated progress, actual costs and structured BOQ are native-only. Save as .neramit to prevent data loss; XML export is blocked until a tested adapter exists.".into());
+    }
     let data = match ext.as_str() {
         "mpp" | "mpt" => return Err("Neramit Planner cannot write .mpp files here. Save as .neramit or XML (*.xml) instead.".into()),
         "xml" => to_xml_doc(p, path),
         "csv" => to_csv(p),
-        _ => serde_json::to_string_pretty(&NativeFile { format: "Neramit Planner".into(), version: 1, project: p.clone() })
+        _ => serde_json::to_string_pretty(&NativeFile { format: "Neramit Planner".into(), version: 2, project: p.clone() })
             .map_err(|e| e.to_string())?,
     };
     // write atomically: temp file then rename

@@ -526,7 +526,14 @@ pub fn items(rows: &[Vec<Val>], c: &Columns) -> Vec<Item> {
 
 /// Add the items to the end of the plan as tasks (groups → summary tasks). `days`: duration of
 /// each item; `chain`: link the items one after another (finish-to-start).
-pub fn add_to_project(p: &mut crate::model::Project, list: &[Item], days: i32, chain: bool) -> usize {
+pub fn add_to_project(p: &mut crate::model::Project, list: &[Item], days: i32, chain: bool) -> Result<usize, String> {
+    // Validate before mutating either the schedule or native controls.
+    for it in list {
+        if !it.amount.is_finite() || it.amount < 0.0 ||
+           it.qty.is_some_and(|q| !q.is_finite() || q < 0.0) {
+            return Err(format!("Invalid BOQ quantity/amount for {}", it.name));
+        }
+    }
     let mpd = p.calendar.minutes_per_day();
     let mut prev_leaf: Option<u32> = None;
     let mut n = 0;
@@ -558,10 +565,15 @@ pub fn add_to_project(p: &mut crate::model::Project, list: &[Item], days: i32, c
             }
             prev_leaf = Some(t.uid);
         }
+        let uid = t.uid;
         p.tasks.push(t);
+        if !has_children {
+            crate::controls::add_boq_line(p, uid, it.no.clone(), it.name.clone(),
+                                          it.qty, it.unit.clone(), it.amount)?;
+        }
         n += 1;
     }
-    n
+    Ok(n)
 }
 
 // ======================================================================== import dialog
@@ -740,7 +752,13 @@ pub fn dialog(app: &mut crate::app::App, ctx: &eframe::egui::Context, st: &mut B
         let list = items(&st.sheets[st.sheet].rows, &st.cols);
         app.checkpoint();
         let first = app.doc.tasks.len();
-        let n = add_to_project(&mut app.doc, &list, st.days, st.chain);
+        let n = match add_to_project(&mut app.doc, &list, st.days, st.chain) {
+            Ok(n) => n,
+            Err(e) => {
+                app.show_error(e);
+                return Some(false);
+            }
+        };
         app.recalc();
         app.dirty = true;
         app.backstage = None;
@@ -832,11 +850,14 @@ mod tests {
         // into a plan: a summary with two costed tasks
         let mut p = crate::model::Project::new();
         p.tasks.clear();
-        assert_eq!(add_to_project(&mut p, &list, 3, true), 3);
+        assert_eq!(add_to_project(&mut p, &list, 3, true).unwrap(), 3);
         assert_eq!(p.tasks[1].fixed_cost, 84000.0);
         assert_eq!(p.tasks[2].predecessors[0].pred_uid, p.tasks[1].uid);
         assert!(p.tasks[0].predecessors.is_empty() && p.tasks[0].fixed_cost == 0.0);
         assert_eq!(p.tasks[1].duration, 3);
+        assert_eq!(p.controls.boq.len(), 2);
+        assert_eq!(p.controls.boq[0].quantity, Some(120.0));
+        assert_eq!(p.controls.boq[0].contract_amount, 84000.0);
     }
 
     #[test]

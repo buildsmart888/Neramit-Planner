@@ -2,7 +2,7 @@ name: Rust regression checks
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, improve/project-controls-foundation-20261109]
   push:
     branches: [main]
   workflow_dispatch:

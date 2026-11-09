@@ -606,24 +606,63 @@ fn earned_value(app: &App, ui: &mut Ui) {
             })
             .sum()
     };
-    let ev: f64 = lv.iter().map(|t| baseline_cost(t) * t.percent_complete as f64 / 100.0).sum();
-    let ac: f64 = lv.iter().map(|t| t.actual_cost).sum();
+    let has_progress = !app.doc.controls.progress.is_empty();
+    let has_cost_ledger = !app.doc.controls.actual_costs.is_empty();
+    let ev: f64 = if has_progress {
+        crate::controls::earned_value_as_of(&app.doc, status)
+    } else {
+        lv.iter().map(|t| baseline_cost(t) * t.percent_complete as f64 / 100.0).sum()
+    };
+    let ac: Option<f64> = if has_cost_ledger {
+        Some(app.doc.controls.posted_cost_as_of(status))
+    } else if has_progress {
+        None // Do not silently substitute a resource-rate estimate for posted actuals.
+    } else {
+        Some(lv.iter().map(|t| t.actual_cost).sum())
+    };
     let pv = pv_at(status);
     let bac: f64 = lv.iter().map(|t| baseline_cost(t)).sum();
     let spi = if pv > 0.0 { Some(ev / pv) } else { None };
-    let cpi = if ac > 0.0 { Some(ev / ac) } else { None };
+    let cpi = ac.filter(|&a| a > 0.0).map(|a| ev / a);
     let eac = cpi.filter(|&x| x > 0.0).map(|x| bac / x);
     let ratio = |v: Option<f64>| v.map(|x| format!("{x:.2}")).unwrap_or_else(|| "N/A".into());
     let estimate = |v: Option<f64>| v.map(money).unwrap_or_else(|| "N/A".into());
-    kpis(ui, &[(money(pv), "Planned Value - PV (BCWS)"), (money(ev), "Earned Value - EV (BCWP)"), (money(ac), "AC (ACWP)")]);
-    kpis(ui, &[(ratio(spi), "SPI"), (ratio(cpi), "CPI"), (money(ev - pv), "SV"), (money(ev - ac), "CV"), (estimate(eac), "EAC")]);
-    note(ui, "Actual cost is currently estimated from resource rates and task completion; it is not a certified actual-cost ledger.");
+    kpis(ui, &[(money(pv), "Planned Value - PV (BCWS)"), (money(ev), "Earned Value - EV (BCWP)"), (estimate(ac), "AC (ACWP)")]);
+    kpis(ui, &[(ratio(spi), "SPI"), (ratio(cpi), "CPI"), (money(ev - pv), "SV"), (estimate(ac.map(|a| ev - a)), "CV"), (estimate(eac), "EAC")]);
+    if !has_progress {
+        note(ui, "EV uses current task % Complete (estimate). Dated physical progress has not been recorded.");
+    } else {
+        note(ui, "EV is based only on dated physical observations; activities without observations contribute 0%. Incomplete progress coverage may understate EV.");
+    }
+    if !has_cost_ledger {
+        note(ui, if has_progress { "AC/CPI require posted dated cost entries; none have been recorded." }
+            else { "AC is an estimate from resource rates and task completion, not a posted cost ledger." });
+    }
     heading(ui, "Earned value over time");
     let ms = months(app);
     let labels: Vec<String> = ms.iter().map(|d| month_label(app, *d)).collect();
     let pvs: Vec<f64> = ms.iter().enumerate().map(|(k, m)| pv_at(ms.get(k + 1).map(|n| *n - chrono::Duration::days(1)).unwrap_or(*m + chrono::Duration::days(30)))).collect();
-    line_chart(ui, 280.0, &labels, &[("Planned Value - PV (BCWS)", GREY, pvs)], money_axis);
-    note(ui, "Historical EV and AC curves are unavailable without dated progress and cost entries. Current EV/AC above are point-in-time estimates, not historical values.");
+    let mut series = vec![("Planned Value - PV (BCWS)", GREY, pvs)];
+    if has_progress {
+        let evs: Vec<f64> = ms.iter().enumerate().take_while(|(_, m)| **m <= status).map(|(k, m)| {
+            let cutoff = ms.get(k + 1).map(|n| *n - chrono::Duration::days(1))
+                .unwrap_or(*m + chrono::Duration::days(30)).min(status);
+            crate::controls::earned_value_as_of(&app.doc, cutoff)
+        }).collect();
+        series.push(("Recorded EV (BCWP)", BLUE, evs));
+    }
+    if has_cost_ledger {
+        let actuals: Vec<f64> = ms.iter().enumerate().take_while(|(_, m)| **m <= status).map(|(k, m)| {
+            let cutoff = ms.get(k + 1).map(|n| *n - chrono::Duration::days(1))
+                .unwrap_or(*m + chrono::Duration::days(30)).min(status);
+            app.doc.controls.posted_cost_as_of(cutoff)
+        }).collect();
+        series.push(("Posted AC (ACWP)", ORANGE, actuals));
+    }
+    line_chart(ui, 280.0, &labels, &series, money_axis);
+    if !has_progress || !has_cost_ledger {
+        note(ui, "Missing historical series are intentionally hidden until real dated entries are available.");
+    }
 }
 
 fn task_cost(app: &App, ui: &mut Ui) {
@@ -750,7 +789,11 @@ fn s_curve(app: &App, ui: &mut Ui) {
     }
     let status = app.status_instant().date();
     let sc = crate::scurve::compute(&app.doc, status, basis, period);
-    note(ui, "Actual curve is an estimate reconstructed from current task % complete; it is not a dated site progress history.");
+    if sc.actual_is_recorded {
+        note(ui, "Actual curve uses dated physical progress entries; tasks without measurements contribute 0% until recorded.");
+    } else {
+        note(ui, "Actual curve is an estimate reconstructed from current task % complete; it is not a dated site progress history.");
+    }
     let diff = sc.actual_at_status - sc.plan_at_status;
     let verdict = if diff.abs() < 0.005 { "On plan" } else if diff > 0.0 { "Ahead of plan" } else { "Behind plan" };
     ui.add_space(6.0);
