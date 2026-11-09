@@ -76,6 +76,9 @@ fn convert(args: &[std::ffi::OsString]) -> i32 {
             eprintln!("warning: {e}");
         }
         if is_mpp(out) {
+            if !p.controls.is_empty() {
+                return Err("Structured BOQ, progress and posted costs cannot be retained in MPP. Convert to .neramit instead.".into());
+            }
             // a .mpp is written from the input .mpp (never over it), or as a new .mpp
             if !is_mpp(inp) {
                 return crate::mppt::save_new_mpp(&p).and_then(|b| std::fs::write(out, b).map_err(|e| e.to_string()));
