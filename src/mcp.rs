@@ -164,6 +164,34 @@ impl Server {
                 }))
             }),
             "import_boq" => self.change(a, import_boq),
+            "list_boq" => Ok(json!({ "items": self.doc(a)?.app.doc.controls.boq })),
+            "list_progress" => {
+                let app = &self.doc(a)?.app;
+                let target = if a.get("id").is_some() || a.get("uid").is_some() { Some(app.doc.tasks[task_index(app, a)?].uid) } else { None };
+                let through = opt_date(a, "through")?;
+                Ok(json!({ "entries": app.doc.controls.progress.iter()
+                    .filter(|e| target.is_none_or(|uid| e.task_uid == uid) && through.is_none_or(|d| e.as_of <= d))
+                    .collect::<Vec<_>>() }))
+            }
+            "record_progress" => self.change(a, |app, a| {
+                let uid = app.doc.tasks[task_index(app, a)?].uid;
+                let as_of = opt_date(a, "as_of")?.ok_or("as_of is required")?;
+                let percent = opt_f64(a, "percent_complete")?;
+                let quantity = opt_f64(a, "cumulative_quantity")?;
+                let note = opt_str(a, "note")?.unwrap_or("").to_string();
+                let entry = crate::controls::record_progress(&mut app.doc, uid, as_of, percent, quantity, note)?;
+                Ok(json!({ "recorded": entry, "schedule_percent_unchanged": true }))
+            }),
+            "list_actual_costs" => Ok(json!({ "entries": self.doc(a)?.app.doc.controls.actual_costs })),
+            "record_actual_cost" => self.change(a, |app, a| {
+                let uid = app.doc.tasks[task_index(app, a)?].uid;
+                let incurred_on = opt_date(a, "incurred_on")?.ok_or("incurred_on is required")?;
+                let amount = opt_f64(a, "amount")?.ok_or("amount is required")?;
+                let category = opt_str(a, "category")?.unwrap_or("").to_string();
+                let reference = opt_str(a, "reference")?.unwrap_or("").to_string();
+                let entry = crate::controls::record_actual_cost(&mut app.doc, uid, incurred_on, amount, category, reference)?;
+                Ok(json!({ "recorded": entry, "estimated_task_cost_unchanged": true }))
+            }),
             "payment_schedule" => Ok(payment_schedule(&self.doc(a)?.app)),
             "set_payment_schedule" => self.change(a, set_payment_schedule),
             "undo" => self.undo(a),
@@ -766,7 +794,7 @@ fn import_boq(app: &mut App, a: &Value) -> Result<Value, String> {
     let days = opt_u64(a, "days")?.unwrap_or(1).min(365) as i32;
     let chain = opt_bool(a, "link_in_sequence")?.unwrap_or(false);
     let first = app.doc.tasks.len();
-    let n = crate::boq::add_to_project(&mut app.doc, &list, days, chain);
+    let n = crate::boq::add_to_project(&mut app.doc, &list, days, chain)?;
     let letter = |k: Option<usize>| k.map(|k| ((b'A' + (k % 26) as u8) as char).to_string());
     Ok(json!({
         "sheet": sheets[pick].name,
@@ -1402,6 +1430,26 @@ fn tools() -> Vec<Value> {
             "days": { "type": "integer", "minimum": 0, "default": 1, "description": "Duration of each item in working days" },
             "link_in_sequence": { "type": "boolean", "default": false, "description": "Link the items finish-to-start one after another" },
         }), &["path"], false),
+        tool("list_boq", "List structured BOQ", "Read native BOQ quantities, units and contract amounts with stable IDs. These records are saved only to .neramit.", json!({}), &[], true),
+        tool("list_progress", "Read physical progress observations", "Read dated physical progress history; through limits records to a cutoff. Missing data stays missing.", json!({
+            "id": { "type": "integer", "description": "Optional task row" },
+            "uid": { "type": "integer", "description": "Optional task UID" },
+            "through": { "type": "string", "description": "Include observations through YYYY-MM-DD" },
+        }), &[], true),
+        tool("record_progress", "Record physical site progress", "Append a dated physical-progress entry for a local leaf task. With a single BOQ item, cumulative quantity can determine physical %. Does not rewrite schedule % Complete. Supports dry_run.", json!({
+            "id": { "type": "integer" }, "uid": { "type": "integer" },
+            "as_of": { "type": "string", "description": "Actual survey date YYYY-MM-DD" },
+            "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 },
+            "cumulative_quantity": { "type": "number", "minimum": 0 },
+            "note": { "type": "string", "description": "Required for a downward correction" },
+        }), &["as_of"], false),
+        tool("list_actual_costs", "Read posted actual costs", "List dated costs entered by the user. Does not include estimated resource-rate costs.", json!({}), &[], true),
+        tool("record_actual_cost", "Post actual cost", "Append an explicitly dated actual cost to the native ledger. Does not rewrite estimated task costs. Supports dry_run.", json!({
+            "id": { "type": "integer" }, "uid": { "type": "integer" },
+            "incurred_on": { "type": "string", "description": "YYYY-MM-DD" },
+            "amount": { "type": "number", "minimum": 0 },
+            "category": { "type": "string" }, "reference": { "type": "string" },
+        }), &["incurred_on","amount","category"], false),
         tool("payment_schedule", "Payment schedule", "The contract's installments (งวดงาน): amount, advance recovered, retention, net, due date from the linked task and status (Paid, Ready to bill, Work late, Planned).", json!({}), &[], true),
         tool("set_payment_schedule", "Set payment schedule", "Change the contract terms and installments. Give installments, or from_milestones to make one per milestone sized by the value of the work before it.", json!({
             "contract_value": { "type": "number", "description": "0 = the project's total cost" },
@@ -1467,6 +1515,7 @@ mod tests {
         let r = s.message(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
         let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"add_tasks") && names.contains(&"save"));
+        assert!(names.contains(&"record_progress") && names.contains(&"list_boq") && names.contains(&"record_actual_cost"));
         let r = s.message(r#"{"jsonrpc":"2.0","id":3,"method":"nope"}"#).unwrap();
         assert_eq!(r["error"]["code"], -32601);
         let r = s.message("{bad").unwrap();
