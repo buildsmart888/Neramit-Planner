@@ -52,6 +52,8 @@ pub struct SCurve {
     pub basis: Basis,
     pub plan_at_status: f64,
     pub actual_at_status: f64,
+    /// False only for legacy projects: physical progress is then a reconstructed estimate.
+    pub actual_is_recorded: bool,
     pub groups: Vec<GroupRow>,
 }
 
@@ -176,6 +178,17 @@ pub fn compute(p: &Project, status: NaiveDate, basis: u8, period: u8) -> SCurve 
     };
     let one = |_: usize| 1.0;
     let done = |k: usize| p.tasks[leaves[k]].percent_complete.min(100) as f64 / 100.0;
+    let actual_is_recorded = !p.controls.progress.is_empty();
+    // Physical progress history is a dated series of cumulative observations. Unknown
+    // progress before the first observation is zero, NOT the current task percentage.
+    let historic = |end_exclusive: NaiveDate| -> f64 {
+        let cutoff = end_exclusive - Duration::days(1);
+        leaves.iter().enumerate().map(|(k, &i)| {
+            let pct = p.controls.progress_as_of(p.tasks[i].uid, cutoff)
+                .map(|v| v.percent_complete).unwrap_or(0.0);
+            w[k] * pct / 100.0
+        }).sum::<f64>() / total * 100.0
+    };
     let plan: Vec<f64> = ends.iter().map(|&e| cum(&pd, &one, e)).collect();
     let current = has_baseline.then(|| ends.iter().map(|&e| cum(&cd, &one, e)).collect());
     let after_status = status + Duration::days(1);
@@ -184,10 +197,10 @@ pub fn compute(p: &Project, status: NaiveDate, basis: u8, period: u8) -> SCurve 
         if k > 0 && ends[k - 1] > status {
             break;
         }
-        actual.push(cum(&ad, &done, e.min(after_status)));
+        actual.push(if actual_is_recorded { historic(e.min(after_status)) } else { cum(&ad, &done, e.min(after_status)) });
     }
     let plan_at_status = cum(&pd, &one, after_status);
-    let actual_at_status = cum(&ad, &done, after_status);
+    let actual_at_status = if actual_is_recorded { historic(after_status) } else { cum(&ad, &done, after_status) };
 
     // groups: the top-level tasks
     let mut group_of = vec![None; p.tasks.len()];
@@ -202,7 +215,12 @@ pub fn compute(p: &Project, status: NaiveDate, basis: u8, period: u8) -> SCurve 
     for (k, &i) in leaves.iter().enumerate() {
         let Some(g) = group_of[i] else { continue };
         let pl = w[k] * days.frac(pd[k].0, pd[k].1, after_status);
-        let ac = w[k] * done(k) * days.frac(ad[k].0, ad[k].1, after_status);
+        let ac = if actual_is_recorded {
+            w[k] * p.controls.progress_as_of(p.tasks[i].uid, status)
+                .map(|x| x.percent_complete / 100.0).unwrap_or(0.0)
+        } else {
+            w[k] * done(k) * days.frac(ad[k].0, ad[k].1, after_status)
+        };
         match groups.iter_mut().find(|x| x.0 == g) {
             Some(x) => {
                 x.1 += w[k];
@@ -217,7 +235,7 @@ pub fn compute(p: &Project, status: NaiveDate, basis: u8, period: u8) -> SCurve 
         .into_iter()
         .map(|(g, gw, pl, ac)| GroupRow { name: p.tasks[g].name.clone(), weight: pct(gw, total), plan: pct(pl, gw), actual: pct(ac, gw) })
         .collect();
-    SCurve { ends, weekly, plan, current, actual, basis, plan_at_status, actual_at_status, groups }
+    SCurve { ends, weekly, plan, current, actual, basis, plan_at_status, actual_at_status, actual_is_recorded, groups }
 }
 
 #[cfg(test)]
@@ -236,6 +254,26 @@ mod tests {
         t.outline_level = 1;
         t.active = true;
         p.tasks.push(t);
+    }
+
+    #[test]
+    fn dated_actual_progress_is_stepwise_and_not_reconstructed() {
+        let mut p = Project::new();
+        p.tasks.clear();
+        let mon = NaiveDate::from_ymd_opt(2026, 1, 5).unwrap();
+        p.start = mon;
+        task(&mut p, "A", mon, 5, 100.0, 90);
+        let uid = p.tasks[0].uid;
+        let before = compute(&p, mon + Duration::days(2), 1, 1);
+        assert!(!before.actual_is_recorded);
+        crate::controls::record_progress(&mut p, uid, mon + Duration::days(2), Some(20.0), None, "".into()).unwrap();
+        crate::controls::record_progress(&mut p, uid, mon + Duration::days(4), Some(60.0), None, "".into()).unwrap();
+        let on_wed = compute(&p, mon + Duration::days(2), 1, 1);
+        assert!(on_wed.actual_is_recorded);
+        assert!((on_wed.actual_at_status - 20.0).abs() < 1e-6);
+        let on_fri = compute(&p, mon + Duration::days(4), 1, 1);
+        assert!((on_fri.actual_at_status - 60.0).abs() < 1e-6);
+        assert!((compute(&p, mon, 1, 1).actual_at_status).abs() < 1e-6);
     }
 
     #[test]
