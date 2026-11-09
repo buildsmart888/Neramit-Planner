@@ -155,8 +155,13 @@ impl Server {
                 Ok(json!({ "baseline": n }))
             }),
             "level_resources" => self.change(a, |app, _| {
-                app.level_resources(None);
-                Ok(json!({ "result": app.status.clone() }))
+                let report = crate::schedule::level_checked(&mut app.doc, None, None)?;
+                crate::custom::apply_formulas(&mut app.doc);
+                Ok(json!({
+                    "delayed_tasks": report.delayed_tasks,
+                    "unresolved_resources": report.unresolved_resources,
+                    "fully_leveled": report.unresolved_resources == 0
+                }))
             }),
             "import_boq" => self.change(a, import_boq),
             "payment_schedule" => Ok(payment_schedule(&self.doc(a)?.app)),
