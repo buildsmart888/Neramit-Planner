@@ -242,6 +242,15 @@ mod tests {
     }
 
     #[test]
+    fn xml_export_fails_before_writing_when_native_controls_exist() {
+        let mut p = project();
+        let start = p.start;
+        record_progress(&mut p, 1, start, Some(40.0), None, "".into()).unwrap();
+        let error = crate::fileio::save(std::path::Path::new("should-not-be-created.xml"), &p).unwrap_err();
+        assert!(error.contains(".neramit"), "{error}");
+    }
+
+    #[test]
     fn actual_cost_ledger_is_time_phased_and_independent() {
         let mut p = project();
         let start = p.start;
