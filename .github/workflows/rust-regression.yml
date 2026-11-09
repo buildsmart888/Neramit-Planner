@@ -1,0 +1,28 @@
+name: Rust regression checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-tests:
+    name: Windows Rust test suite
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Run regression tests
+        run: cargo test --locked --verbose
+      - name: Build application
+        run: cargo build --locked
