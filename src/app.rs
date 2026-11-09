@@ -1752,7 +1752,13 @@ impl App {
                 crate::custom::apply_formulas(&mut self.doc);
                 // Leveling Options > Automatic: level after every change
                 if self.doc.options.leveling.automatic && self.doc.resources.iter().any(|r| r.overallocated) {
-                    schedule::level(&mut self.doc, None);
+                    match schedule::level_checked(&mut self.doc, None, None) {
+                        Ok(report) if report.unresolved_resources > 0 => {
+                            self.status = format!("Resource leveling: {} resource(s) remain overallocated", report.unresolved_resources);
+                        }
+                        Ok(_) => {}
+                        Err(e) => self.message = Some((product().into(), format!("Resource leveling failed: {e}"))),
+                    }
                 }
             }
             Err(e) => self.message = Some((product().into(), e)),
@@ -1916,8 +1922,10 @@ impl App {
         let mpd = cal.minutes_per_day();
         match kind {
             0 => {
-                let n = schedule::level_tasks(&mut self.doc, None, Some(&sel));
-                self.status = format!("Leveling delayed {n} task(s)");
+                match schedule::level_checked(&mut self.doc, None, Some(&sel)) {
+                    Ok(report) => self.status = format!("Leveling delayed {} task(s); {} resource(s) still overallocated", report.delayed_tasks, report.unresolved_resources),
+                    Err(e) => self.message = Some((product().into(), format!("Leveling failed: {e}"))),
+                }
             }
             1 => {
                 for &i in &sel {
@@ -2831,9 +2839,15 @@ impl App {
     pub fn level_resources(&mut self, only: Option<u32>) {
         self.commit_edit();
         self.checkpoint();
-        let n = schedule::level(&mut self.doc, only);
-        self.recalc();
-        self.status = format!("Leveling delayed {n} task(s)");
+        match schedule::level_checked(&mut self.doc, only, None) {
+            Ok(report) => {
+                // schedule::level_checked has already recalculated the staged project.
+                crate::custom::apply_formulas(&mut self.doc);
+                self.status = format!("Leveling delayed {} task(s); {} resource(s) still overallocated", report.delayed_tasks, report.unresolved_resources);
+                self.dirty = true;
+            }
+            Err(e) => self.message = Some((product().into(), format!("Leveling failed: {e}"))),
+        }
     }
 
     /// Resource > Clear Leveling.
