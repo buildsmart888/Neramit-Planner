@@ -242,6 +242,21 @@ mod tests {
     }
 
     #[test]
+    fn earned_value_uses_each_recorded_cutoff_not_current_task_percent() {
+        let mut p = project();
+        let start = p.start;
+        p.tasks[0].set_baseline(crate::model::Baseline {
+            number: 0, cost: Some(1000.0), ..Default::default()
+        });
+        p.tasks[0].percent_complete = 95; // scheduling estimate is intentionally ignored
+        record_progress(&mut p, 1, start, Some(10.0), None, "".into()).unwrap();
+        record_progress(&mut p, 1, start + chrono::Duration::days(3), Some(60.0), None, "".into()).unwrap();
+        assert_eq!(earned_value_as_of(&p, start - chrono::Duration::days(1)), 0.0);
+        assert_eq!(earned_value_as_of(&p, start), 100.0);
+        assert_eq!(earned_value_as_of(&p, start + chrono::Duration::days(3)), 600.0);
+    }
+
+    #[test]
     fn xml_export_fails_before_writing_when_native_controls_exist() {
         let mut p = project();
         let start = p.start;
