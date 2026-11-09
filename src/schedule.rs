@@ -1057,14 +1057,39 @@ fn overallocation(p: &mut Project, ridx: &HashMap<u32, usize>) {
 
 /// Resource > Level All: delay tasks (lowest priority first, then most slack, latest start,
 /// highest ID) until no resource is overallocated. Only auto-scheduled tasks that have not
-/// started are delayed. Returns the number of tasks delayed.
+/// started are delayed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LevelingReport {
+    pub delayed_tasks: usize,
+    /// Number of resources still overallocated after leveling (for example, no movable tasks).
+    pub unresolved_resources: usize,
+}
+
+/// Run leveling on a staging project, rolling back on any scheduling error.
+/// The caller gets an explicit report when there are no legal moves left.
+pub fn level_checked(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[usize]>) -> Result<LevelingReport, String> {
+    let mut staged = p.clone();
+    let delayed_tasks = level_tasks_inner(&mut staged, only, movable_tasks)?;
+    let unresolved_resources = staged.resources.iter()
+        .filter(|r| only.map(|uid| r.uid == uid).unwrap_or(true) && r.overallocated)
+        .count();
+    *p = staged;
+    Ok(LevelingReport { delayed_tasks, unresolved_resources })
+}
+
+/// Backwards-compatible convenience functions. UI and MCP must use level_checked
+/// to avoid silently losing scheduling errors.
 pub fn level(p: &mut Project, only: Option<u32>) -> usize {
-    level_tasks(p, only, None)
+    level_checked(p, only, None).map(|r| r.delayed_tasks).unwrap_or(0)
+}
+
+pub fn level_tasks(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[usize]>) -> usize {
+    level_checked(p, only, movable_tasks).map(|r| r.delayed_tasks).unwrap_or(0)
 }
 
 /// Leveling that may only delay the tasks in `movable` (None = any task): Task > Move > When
 /// Resources Are Available levels the selected tasks.
-pub fn level_tasks(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[usize]>) -> usize {
+fn level_tasks_inner(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[usize]>) -> Result<usize, String> {
     let opt = p.options.leveling.clone();
     let may_move = |i: usize| movable_tasks.map(|m| m.contains(&i)).unwrap_or(true);
     if opt.clear_first {
@@ -1074,7 +1099,7 @@ pub fn level_tasks(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[u
             }
         }
     }
-    let _ = schedule(p);
+    schedule(p)?;
     // the period overallocations are looked for in (Leveling Options > basis): its first day
     let period = |d: NaiveDate| -> NaiveDate {
         match opt.basis {
@@ -1167,9 +1192,9 @@ pub fn level_tasks(p: &mut Project, only: Option<u32>, movable_tasks: Option<&[u
         if !moved {
             break;
         }
-        let _ = schedule(p);
+        schedule(p)?;
     }
-    delayed.len()
+    Ok(delayed.len())
 }
 
 /// Would adding `pred -> succ` create a cycle?
@@ -1673,6 +1698,35 @@ mod tests {
         p.tasks[0].resources.retain(|u| *u != 2);
         schedule(&mut p).unwrap();
         assert_eq!((p.tasks[0].dur_min, p.tasks[0].work_min), (1920, 1920));
+    }
+
+    #[test]
+    fn leveling_reports_unresolved_overallocations_without_changing_the_plan() {
+        let mut p = with_engineers(1);
+        let mut a = task(1, 960, DurUnit::Days);
+        a.resources = vec![1];
+        let mut b = task(2, 960, DurUnit::Days);
+        b.resources = vec![1];
+        p.tasks = vec![a, b];
+        schedule(&mut p).unwrap();
+        let starts: Vec<_> = p.tasks.iter().map(|t| t.start_dt).collect();
+        let report = level_checked(&mut p, None, Some(&[])).unwrap();
+        assert_eq!(report.delayed_tasks, 0);
+        assert_eq!(report.unresolved_resources, 1);
+        assert_eq!(p.tasks.iter().map(|t| t.start_dt).collect::<Vec<_>>(), starts);
+    }
+
+    #[test]
+    fn leveling_rolls_back_on_a_circular_dependency() {
+        let mut p = with_engineers(1);
+        let mut a = task(1, 480, DurUnit::Days);
+        let mut b = task(2, 480, DurUnit::Days);
+        a.predecessors.push(Link::new(2, LinkType::FS));
+        b.predecessors.push(Link::new(1, LinkType::FS));
+        p.tasks = vec![a, b];
+        let before = serde_json::to_value(&p).unwrap();
+        assert!(level_checked(&mut p, None, None).is_err());
+        assert_eq!(serde_json::to_value(&p).unwrap(), before);
     }
 
     #[test]
