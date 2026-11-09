@@ -4269,6 +4269,10 @@ impl App {
     /// Save As .mpp: a copy of the .mpp the project was opened from, with the edits written into
     /// it. The opened file itself is never overwritten.
     fn save_mpp_copy(&mut self, p: PathBuf) -> bool {
+        if !self.doc.controls.is_empty() {
+            self.show_error("Native BOQ, dated progress and posted costs would be lost in .mpp. Choose Save As .neramit instead.");
+            return false;
+        }
         let Some((src_path, src)) = self.mpp_source.clone() else {
             // a project that was not opened from a .mpp: a new .mpp from the standard template
             return match crate::mppt::save_new_mpp(&self.doc).and_then(|b| std::fs::write(&p, b).map_err(|e| format!("Cannot write the file: {e}"))) {
