@@ -27,6 +27,7 @@ mod scurve;
 mod compare;
 mod wbs;
 mod custom;
+mod controls;
 mod custom_tables;
 mod cfdefs;
 mod sprintio;
