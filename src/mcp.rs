@@ -1545,6 +1545,11 @@ mod tests {
             "category": "materials", "reference": "RC-01"
         }));
         assert_eq!(call(&mut s, "list_actual_costs", json!({}))["entries"].as_array().unwrap().len(), 1);
+        // Deleting a task with posted site records would orphan the ledger: refuse.
+        let deletion_error = call_err(&mut s, "delete_tasks", json!({ "tasks": [{ "uid": uid }] }));
+        assert!(deletion_error.contains("Cannot delete tasks"), "{deletion_error}");
+        assert_eq!(call(&mut s, "list_tasks", json!({}))["total"], json!(1));
+        assert_eq!(call(&mut s, "list_actual_costs", json!({}))["entries"].as_array().unwrap().len(), 1);
         assert_eq!(call(&mut s, "list_boq", json!({}))["items"].as_array().unwrap().len(), 0);
         let e = call_err(&mut s, "record_progress", json!({
             "uid": uid, "as_of": "2026-11-05", "percent_complete": 10
