@@ -3,7 +3,7 @@
 
 use crate::{app::App, controls, theme};
 use crate::i18n::tr;
-use chrono::{Local, NaiveDate};
+use chrono::NaiveDate;
 use eframe::egui::{self, RichText, Ui};
 use serde::{Deserialize, Serialize};
 
