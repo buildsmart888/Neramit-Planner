@@ -2458,7 +2458,6 @@ impl App {
         if sel.is_empty() {
             return;
         }
-        self.checkpoint();
         // deleting a summary deletes its children (as in MPP)
         let mut del = std::collections::BTreeSet::new();
         for i in sel {
@@ -2467,6 +2466,12 @@ impl App {
             }
         }
         let uids: Vec<u32> = del.iter().map(|&i| self.doc.tasks[i].uid).collect();
+        let ids: std::collections::HashSet<u32> = uids.iter().copied().collect();
+        if let Err(error) = crate::controls::ensure_deletable(&self.doc, &ids) {
+            self.show_error(error);
+            return;
+        }
+        self.checkpoint();
         // Autolink: tasks deleted out of a Finish-to-Start chain leave the tasks around them linked
         let mut relink: Vec<(u32, Link)> = Vec::new();
         if self.doc.options.autolink {

@@ -82,6 +82,18 @@ impl ProjectControls {
     }
 }
 
+/// A task linked to BOQ, physical measurements or posted costs cannot be removed silently.
+pub fn ensure_deletable(p: &Project, task_uids: &std::collections::HashSet<u32>) -> Result<(), String> {
+    let contains = |uid: u32| task_uids.contains(&uid);
+    let referenced = p.controls.boq.iter().any(|e| contains(e.task_uid))
+        || p.controls.progress.iter().any(|e| contains(e.task_uid))
+        || p.controls.actual_costs.iter().any(|e| contains(e.task_uid));
+    if referenced {
+        return Err("Cannot delete tasks linked to BOQ, physical progress or posted costs. Save a .neramit backup; use an audited archive/unlink workflow in a future release.".into());
+    }
+    Ok(())
+}
+
 pub fn add_boq_line(p: &mut Project, task_uid: u32, code: String,
                     description: String, quantity: Option<f64>, unit: String,
                     contract_amount: f64) -> Result<BoqLine, String> {
@@ -204,6 +216,16 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_task_with_native_records_is_refused() {
+        let mut p = project();
+        let ids = std::collections::HashSet::from([1u32]);
+        assert!(ensure_deletable(&p, &ids).is_ok());
+        add_boq_line(&mut p, 1, "A1".into(), "Foundation".into(), Some(200.0), "m3".into(), 40000.0).unwrap();
+        assert!(ensure_deletable(&p, &ids).is_err());
+        assert!(ensure_deletable(&p, &std::collections::HashSet::from([99u32])).is_ok());
+    }
+
+    #[test]
     fn old_projects_deserialize_with_empty_controls() {
         let p = project();
         let json = serde_json::to_value(&p).unwrap();
@@ -263,6 +285,26 @@ mod tests {
         record_progress(&mut p, 1, start, Some(40.0), None, "".into()).unwrap();
         let error = crate::fileio::save(std::path::Path::new("should-not-be-created.xml"), &p).unwrap_err();
         assert!(error.contains(".neramit"), "{error}");
+    }
+
+    #[test]
+    fn native_file_roundtrip_preserves_quantities_progress_and_posted_costs() {
+        let mut p = project();
+        let date = p.start;
+        add_boq_line(&mut p, 1, "2.1".into(), "Concrete".into(),
+                     Some(400.0), "m3".into(), 800000.0).unwrap();
+        record_progress(&mut p, 1, date, None, Some(125.0), "Survey A".into()).unwrap();
+        record_actual_cost(&mut p, 1, date, 5000.0, "material".into(), "INV-001".into()).unwrap();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("neramit-control-test-{}-{nonce}.neramit", std::process::id()));
+        crate::fileio::save(&path, &p).unwrap();
+        let reopened = crate::fileio::load(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(reopened.controls, p.controls);
+        assert_eq!(reopened.tasks[0].physical_percent, p.tasks[0].physical_percent);
+        assert_eq!(reopened.controls.progress_as_of(1, date).unwrap().percent_complete, 31.25);
+        assert_eq!(reopened.controls.posted_cost_as_of(date), 5000.0);
     }
 
     #[test]

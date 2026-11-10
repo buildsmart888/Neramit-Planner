@@ -1068,6 +1068,7 @@ fn delete_tasks(app: &mut App, a: &Value) -> Result<Value, String> {
     }
     let names: Vec<Value> = del.iter().map(|&i| json!({ "id": i + 1, "uid": app.doc.tasks[i].uid, "name": app.doc.tasks[i].name })).collect();
     let uids: std::collections::HashSet<u32> = del.iter().map(|&i| app.doc.tasks[i].uid).collect();
+    crate::controls::ensure_deletable(&app.doc, &uids)?;
     for &i in del.iter().rev() {
         app.doc.tasks.remove(i);
     }
@@ -1543,6 +1544,11 @@ mod tests {
             "uid": uid, "incurred_on": "2026-11-03", "amount": 1800,
             "category": "materials", "reference": "RC-01"
         }));
+        assert_eq!(call(&mut s, "list_actual_costs", json!({}))["entries"].as_array().unwrap().len(), 1);
+        // Deleting a task with posted site records would orphan the ledger: refuse.
+        let deletion_error = call_err(&mut s, "delete_tasks", json!({ "tasks": [{ "uid": uid }] }));
+        assert!(deletion_error.contains("Cannot delete tasks"), "{deletion_error}");
+        assert_eq!(call(&mut s, "list_tasks", json!({}))["total"], json!(1));
         assert_eq!(call(&mut s, "list_actual_costs", json!({}))["entries"].as_array().unwrap().len(), 1);
         assert_eq!(call(&mut s, "list_boq", json!({}))["items"].as_array().unwrap().len(), 0);
         let e = call_err(&mut s, "record_progress", json!({

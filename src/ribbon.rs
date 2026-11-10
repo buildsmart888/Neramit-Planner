@@ -1173,6 +1173,7 @@ fn tab_spec(app: &App) -> Vec<(&'static str, Vec<It>)> {
                     l("Custom\nFields", Some(Cmd::CustomFields), true),
                     l("Manage\nSprints", Some(Cmd::ManageSprints), true),
                     l("Payment\nSchedule", Some(Cmd::Payments), true),
+                    l("Project\nControls", Some(Cmd::Report(crate::reports::ReportKind::ProjectControls)), true),
                     It::Col(vec![s("Links Between Projects...", Some(Cmd::ProjectLinks), true), sm("WBS", "wbs", true), s("Change Working Time...", Some(Cmd::WorkingTime), true)]),
                 ],
             ),
