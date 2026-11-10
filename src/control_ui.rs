@@ -2,6 +2,7 @@
 //! All edits stage a Project clone before checkpointing, preventing partial mutations.
 
 use crate::{app::App, controls, theme};
+use crate::i18n::tr;
 use chrono::{Local, NaiveDate};
 use eframe::egui::{self, RichText, Ui};
 use serde::{Deserialize, Serialize};
@@ -43,8 +44,8 @@ fn text_field(ui: &mut Ui, value: &mut String, hint: &str, width: f32) {
 }
 
 fn intro(ui: &mut Ui, title: &str, description: &str) {
-    ui.label(RichText::new(title).size(17.0).strong().color(theme::GREEN));
-    ui.label(RichText::new(description).color(theme::TEXT_DIM));
+    ui.label(RichText::new(tr(title)).size(17.0).strong().color(theme::GREEN));
+    ui.label(RichText::new(tr(description)).color(theme::TEXT_DIM));
     ui.add_space(5.0);
 }
 
@@ -68,8 +69,8 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
     }
 
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut form.mode, 0, "Physical Progress");
-        ui.selectable_value(&mut form.mode, 1, "Actual Cost");
+        ui.selectable_value(&mut form.mode, 0, tr("Physical Progress"));
+        ui.selectable_value(&mut form.mode, 1, tr("Actual Cost"));
     });
     ui.separator();
 
@@ -78,7 +79,7 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
         .filter(|(_, t)| !t.is_summary && t.external.is_none())
         .map(|(i, t)| (t.uid, format!("{}  {}", i + 1, t.name))).collect();
     if tasks.is_empty() {
-        ui.label("No local leaf tasks. Create tasks or import a BOQ first.");
+        ui.label(tr("No local leaf tasks. Create tasks or import a BOQ first."));
         ui.data_mut(|d| d.insert_persisted(id, form));
         return;
     }
@@ -98,7 +99,7 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
             "Records paid or incurred amounts, not automatically estimated resource costs.");
     }
     egui::Grid::new("project-controls-form").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-        ui.label("Task");
+        ui.label(tr("Task"));
         egui::ComboBox::from_id_salt("project-controls-task").width(380.0)
             .selected_text(crate::thai::shape(&selected_name))
             .show_ui(ui, |ui| {
@@ -108,28 +109,28 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
             });
         ui.end_row();
 
-        ui.label(if form.mode == 0 { "Survey date" } else { "Incurred date" });
+        ui.label(tr(if form.mode == 0 { "Survey date" } else { "Incurred date" }));
         text_field(ui, &mut form.date, "YYYY-MM-DD", 150.0);
         ui.end_row();
 
         if form.mode == 0 {
-            ui.label("Physical progress (%)");
+            ui.label(tr("Physical progress (%)"));
             text_field(ui, &mut form.percent, "e.g. 31.25 (optional)", 215.0);
             ui.end_row();
 
-            ui.label("Cumulative BOQ quantity");
+            ui.label(tr("Cumulative BOQ quantity"));
             text_field(ui, &mut form.cumulative, "e.g. 125 (optional)", 215.0);
             ui.end_row();
 
-            ui.label("Evidence / correction reason");
+            ui.label(tr("Evidence / correction reason"));
             text_field(ui, &mut form.note, "Survey reference or reason", 380.0);
             ui.end_row();
         } else {
-            ui.label("Amount");
+            ui.label(tr("Amount"));
             text_field(ui, &mut form.amount, "e.g. 12000.00", 215.0);
             ui.end_row();
 
-            ui.label("Category");
+            ui.label(tr("Category"));
             egui::ComboBox::from_id_salt("project-cost-category")
                 .selected_text(&form.category).show_ui(ui, |ui| {
                     for category in ["material", "labor", "equipment", "subcontract", "other"] {
@@ -138,14 +139,14 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
                 });
             ui.end_row();
 
-            ui.label("Invoice / receipt");
+            ui.label(tr("Invoice / receipt"));
             text_field(ui, &mut form.reference, "INV-001", 380.0);
             ui.end_row();
         }
     });
 
     let save_label = if form.mode == 0 { "Record site progress" } else { "Post actual cost" };
-    if ui.button(save_label).clicked() {
+    if ui.button(tr(save_label)).clicked() {
         // The Project clone is changed only if validation fully succeeds.
         let result = (|| -> Result<(crate::model::Project, String), String> {
             let date = date_input(&form.date)?;
@@ -186,19 +187,19 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
         ui.colored_label(if form.error { egui::Color32::DARK_RED } else { theme::GREEN },
                          crate::thai::shape(&form.message));
     }
-    ui.label(RichText::new("Native progress and cost records are saved to .neramit only. MPP/XML output is blocked to prevent losing these fields.")
+    ui.label(RichText::new(tr("Native progress and cost records are saved to .neramit only. MPP/XML output is blocked to prevent losing these fields."))
         .color(theme::TEXT_DIM));
 
     ui.add_space(12.0);
     if form.mode == 0 {
-        ui.label(RichText::new("BOQ linked to selected activity").strong().size(16.0));
+        ui.label(RichText::new(tr("BOQ linked to selected activity")).strong().size(16.0));
         let lines: Vec<_> = app.doc.controls.boq.iter().filter(|x| x.task_uid == form.task_uid).collect();
         if lines.is_empty() {
-            ui.label("No BOQ for this activity. Use physical percentage instead.");
+            ui.label(tr("No BOQ for this activity. Use physical percentage instead."));
         } else {
             egui::Grid::new("project-control-boq").striped(true).spacing([14.0, 5.0]).show(ui, |ui| {
                 for label in ["Code", "Description", "Planned quantity", "Unit", "Amount"] {
-                    ui.strong(label);
+                    ui.strong(tr(label));
                 }
                 ui.end_row();
                 for line in lines {
@@ -212,16 +213,16 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
             });
         }
         ui.add_space(10.0);
-        ui.label(RichText::new("Physical progress history").strong().size(16.0));
+        ui.label(RichText::new(tr("Physical progress history")).strong().size(16.0));
         let mut entries: Vec<_> = app.doc.controls.progress.iter()
             .filter(|e| e.task_uid == form.task_uid).collect();
         entries.sort_by_key(|e| std::cmp::Reverse((e.as_of, e.id)));
         if entries.is_empty() {
-            ui.label("No site surveys recorded yet.");
+            ui.label(tr("No site surveys recorded yet."));
         } else {
             egui::Grid::new("project-control-progress").striped(true).spacing([14.0, 5.0]).show(ui, |ui| {
                 for label in ["Date", "Physical %", "Measured qty", "Note", "Record ID"] {
-                    ui.strong(label);
+                    ui.strong(tr(label));
                 }
                 ui.end_row();
                 for e in entries.iter().take(100) {
@@ -238,17 +239,17 @@ pub fn controls_page(app: &mut App, ui: &mut Ui) {
             }
         }
     } else {
-        ui.label(RichText::new("Posted cost ledger").strong().size(16.0));
+        ui.label(RichText::new(tr("Posted cost ledger")).strong().size(16.0));
         let recorded = app.doc.controls.posted_cost_as_of(app.status_instant().date());
         ui.label(format!("Posted cost through status date: {:.2}", recorded));
         let mut entries: Vec<_> = app.doc.controls.actual_costs.iter().collect();
         entries.sort_by_key(|e| std::cmp::Reverse((e.incurred_on, e.id)));
         if entries.is_empty() {
-            ui.label("No posted actual costs yet.");
+            ui.label(tr("No posted actual costs yet."));
         } else {
             egui::Grid::new("project-control-costs").striped(true).spacing([14.0, 5.0]).show(ui, |ui| {
                 for label in ["Date", "Task UID", "Amount", "Category", "Reference", "Record ID"] {
-                    ui.strong(label);
+                    ui.strong(tr(label));
                 }
                 ui.end_row();
                 for e in entries.iter().take(100) {
