@@ -82,6 +82,18 @@ impl ProjectControls {
     }
 }
 
+/// A task linked to BOQ, physical measurements or posted costs cannot be removed silently.
+pub fn ensure_deletable(p: &Project, task_uids: &std::collections::HashSet<u32>) -> Result<(), String> {
+    let contains = |uid: u32| task_uids.contains(&uid);
+    let referenced = p.controls.boq.iter().any(|e| contains(e.task_uid))
+        || p.controls.progress.iter().any(|e| contains(e.task_uid))
+        || p.controls.actual_costs.iter().any(|e| contains(e.task_uid));
+    if referenced {
+        return Err("Cannot delete tasks linked to BOQ, physical progress or posted costs. Save a .neramit backup; use an audited archive/unlink workflow in a future release.".into());
+    }
+    Ok(())
+}
+
 pub fn add_boq_line(p: &mut Project, task_uid: u32, code: String,
                     description: String, quantity: Option<f64>, unit: String,
                     contract_amount: f64) -> Result<BoqLine, String> {
@@ -201,6 +213,16 @@ mod tests {
         p.tasks.clear();
         p.tasks.push(Task::new(1, "Foundation", p.start));
         p
+    }
+
+    #[test]
+    fn deleting_a_task_with_native_records_is_refused() {
+        let mut p = project();
+        let ids = std::collections::HashSet::from([1u32]);
+        assert!(ensure_deletable(&p, &ids).is_ok());
+        add_boq_line(&mut p, 1, "A1".into(), "Foundation".into(), Some(200.0), "m3".into(), 40000.0).unwrap();
+        assert!(ensure_deletable(&p, &ids).is_err());
+        assert!(ensure_deletable(&p, &std::collections::HashSet::from([99u32])).is_ok());
     }
 
     #[test]
