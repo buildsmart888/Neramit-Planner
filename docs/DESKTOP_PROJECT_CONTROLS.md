@@ -35,7 +35,15 @@ The UI reports failures without mutating the project or creating an Undo step.
 
 ## Quality gates
 
-Automated tests were authored for parsing input dates/numbers, BOQ and progress round trips, cost ledger cutoffs, undo/dry-run via MCP, deletion guard, and native file save/read. They require `cargo test --locked` on Windows. **Do not treat them as passed merely because the code is checked in.**
+Automated tests were authored for parsing input dates/numbers, BOQ and progress round trips, cost ledger cutoffs, undo/dry-run via MCP, deletion guard, and native file save/read. They require `cargo test --locked` on Windows.
+
+Local verification command in Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-project-controls.ps1
+```
+
+This script runs `cargo test --locked --verbose`, `cargo build --locked` and a .neramit sample conversion smoke test. It writes logs under `test-results/` and must exit successfully before considering code validated. **Do not treat them as passed merely because the code is checked in.**
 
 The Windows GitHub-hosted Actions runs for earlier PRs have failed before steps started; see `docs/CI_RELEASE_BLOCKER.md`. The cause must be diagnosed from GitHub Actions UI job annotations or by a local Windows Rust build before merging any stacked PR.
 
