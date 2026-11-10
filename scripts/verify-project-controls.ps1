@@ -22,9 +22,16 @@ function Invoke-CargoCheck {
     param([string]$Label, [string[]]$Arguments)
     $log = Join-Path $outDir ("{0}.log" -f $Label)
     Write-Host ("Starting {0} (log: {1})" -f $Label, $log)
-    # Both stdout and stderr are captured; the native process exit code is authoritative.
-    & cargo @Arguments 2>&1 | Tee-Object -FilePath $log
-    $code = $LASTEXITCODE
+    # PowerShell 5.1 can treat native stderr as a terminating error under Stop.
+    # Capture it as text, then rely strictly on Cargo's exit code.
+    $previousAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & cargo @Arguments 2>&1 | Tee-Object -FilePath $log
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousAction
+    }
     if ($code -ne 0) {
         throw ("{0} failed with exit code {1}. Inspect {2}" -f $Label, $code, $log)
     }
