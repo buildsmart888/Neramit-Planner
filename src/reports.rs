@@ -38,6 +38,8 @@ pub enum ReportKind {
     SCurve,
     /// installments of the contract (Costs)
     Payments,
+    /// Native site measurements, actual costs and BOQ entries.
+    ProjectControls,
 }
 
 impl ReportKind {
@@ -65,6 +67,7 @@ impl ReportKind {
             ReportKind::Comparison => "Comparison Report",
             ReportKind::SCurve => "S-Curve",
             ReportKind::Payments => "Payment Schedule",
+            ReportKind::ProjectControls => "Project Controls",
         }
     }
 
@@ -73,8 +76,8 @@ impl ReportKind {
         match key {
             "rep_dash" => &[ReportKind::Burndown, ReportKind::CostOverview, ReportKind::ProjectOverview, ReportKind::UpcomingTasks, ReportKind::WorkOverview],
             "rep_res" => &[ReportKind::OverallocatedResources, ReportKind::ResourceOverview],
-            "rep_cost" => &[ReportKind::CashFlow, ReportKind::CostOverruns, ReportKind::EarnedValue, ReportKind::Payments, ReportKind::ResourceCostOverview, ReportKind::TaskCostOverview],
-            "rep_prog" => &[ReportKind::CriticalTasks, ReportKind::LateTasks, ReportKind::MilestoneReport, ReportKind::SCurve, ReportKind::SlippingTasks],
+            "rep_cost" => &[ReportKind::CashFlow, ReportKind::CostOverruns, ReportKind::EarnedValue, ReportKind::ProjectControls, ReportKind::Payments, ReportKind::ResourceCostOverview, ReportKind::TaskCostOverview],
+            "rep_prog" => &[ReportKind::CriticalTasks, ReportKind::LateTasks, ReportKind::MilestoneReport, ReportKind::ProjectControls, ReportKind::SCurve, ReportKind::SlippingTasks],
             _ => &[],
         }
     }
@@ -123,6 +126,7 @@ pub fn report_view(app: &mut App, ui: &mut Ui, area: Rect) {
             ReportKind::Comparison => crate::compare::comparison_page(app, ui),
             ReportKind::SCurve => s_curve(app, ui),
             ReportKind::Payments => payment_schedule(app, ui),
+            ReportKind::ProjectControls => crate::control_ui::controls_page(app, ui),
         }
         ui.add_space(30.0);
     });
