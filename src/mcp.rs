@@ -1068,6 +1068,7 @@ fn delete_tasks(app: &mut App, a: &Value) -> Result<Value, String> {
     }
     let names: Vec<Value> = del.iter().map(|&i| json!({ "id": i + 1, "uid": app.doc.tasks[i].uid, "name": app.doc.tasks[i].name })).collect();
     let uids: std::collections::HashSet<u32> = del.iter().map(|&i| app.doc.tasks[i].uid).collect();
+    crate::controls::ensure_deletable(&app.doc, &uids)?;
     for &i in del.iter().rev() {
         app.doc.tasks.remove(i);
     }
