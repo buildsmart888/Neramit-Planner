@@ -1,5 +1,7 @@
 # Build output and release binaries belong in GitHub Releases.
 target/
+# Locally generated Windows validation logs and converted test fixtures.
+test-results/
 /dist/*/
 *.tmp
 __pycache__/
