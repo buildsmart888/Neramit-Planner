@@ -28,6 +28,7 @@ mod compare;
 mod wbs;
 mod custom;
 mod controls;
+mod control_ui;
 mod custom_tables;
 mod cfdefs;
 mod sprintio;
