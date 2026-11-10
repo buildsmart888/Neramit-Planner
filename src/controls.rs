@@ -288,6 +288,26 @@ mod tests {
     }
 
     #[test]
+    fn native_file_roundtrip_preserves_quantities_progress_and_posted_costs() {
+        let mut p = project();
+        let date = p.start;
+        add_boq_line(&mut p, 1, "2.1".into(), "Concrete".into(),
+                     Some(400.0), "m3".into(), 800000.0).unwrap();
+        record_progress(&mut p, 1, date, None, Some(125.0), "Survey A".into()).unwrap();
+        record_actual_cost(&mut p, 1, date, 5000.0, "material".into(), "INV-001".into()).unwrap();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("neramit-control-test-{}-{nonce}.neramit", std::process::id()));
+        crate::fileio::save(&path, &p).unwrap();
+        let reopened = crate::fileio::load(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(reopened.controls, p.controls);
+        assert_eq!(reopened.tasks[0].physical_percent, p.tasks[0].physical_percent);
+        assert_eq!(reopened.controls.progress_as_of(1, date).unwrap().percent_complete, 31.25);
+        assert_eq!(reopened.controls.posted_cost_as_of(date), 5000.0);
+    }
+
+    #[test]
     fn actual_cost_ledger_is_time_phased_and_independent() {
         let mut p = project();
         let start = p.start;
